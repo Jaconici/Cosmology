@@ -6,13 +6,9 @@ from numpy import dot,transpose
 import random
 from scipy.special import kn
 from scipy.interpolate import interp1d, interp2d
-from tqdm import tqdm
 import cmath as cm
-from matplotlib.ticker import LogLocator, AutoMinorLocator
-
 from scipy.special import *
-
-import Libs.pbhcosmology as cosmo
+import pbhcosmology as cosmo
 
 ''''constants'''
 alpha = 0.2 #gravitational collapse factor
