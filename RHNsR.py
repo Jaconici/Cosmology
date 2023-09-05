@@ -813,6 +813,17 @@ def U2a(Mv,M,x,y):
     return ( 2*m1 * M1*(dM + M1) + dM*(m2-m3)*M3*cos(2*x) + (dM + 2*M1) * (m2+m3)*M3*cosh(2*y))/(2*M1*M2*M3)
 
 
+'''Define the function to convert U^2 to y'''
+def Uinv(M2,U,dM,mh,x):
+    Mv,MN = [ml(mh),mm(mh),mh],[M2-dM,M2,1e16]
+    if U < (Mv[1] + Mv[2])/(2*MN[0]) + (Mv[1] + Mv[2])/(2*MN[1]):
+        return 0
+    else:
+        arg = (U - (Mv[1] - mh)/2 * (1/MN[0] - 1/M2)*cos(2*x) )/((Mv[1]+ mh)/2 * (1/MN[0] + 1/M2))
+        return np.arccosh(float(arg))/2
+      
+
+
 
 def avg(mass,T):
     def Boltzmann(E):
@@ -994,7 +1005,7 @@ def solvecoupled(xf,yf,dM,M2f,mhf,funs=None,ic=0,MBH=None,betaf=None,delta = 0,z
 
     NBLi = interp1d(NBL.t,NBLT,fill_value = 'extrapolate')
     
-    YBL = [NBLi(a)* Chi(M2f/Talpha(a)) for a in NBL.t]
+    YBL = [NBLi(a)* Chi(Talpha(a)) for a in NBL.t]
 
     '''Make list of z for each alphalist and then interpolate the flavour summed asymmetry wrt alpha'''
     YBLa = interp1d(NBL.t,YBL,fill_value="extrapolate")
@@ -1002,21 +1013,30 @@ def solvecoupled(xf,yf,dM,M2f,mhf,funs=None,ic=0,MBH=None,betaf=None,delta = 0,z
     if inst == True:      
         return [[Ny1,Ny2],[YBLa,NBL.t],[NBLei,NBLmui,NBLtaui],alphaT,Talpha]
     elif inst == False:
+        Ytotal,alphatotal = [],[]
+        
+        '''Solve the B differential equation'''
         a150 = alphaT(150)
         Bsol = solve_ivp(dB,[a150,alphaT(120)],[NBLi(a150) *  Chi(150)],args=tuple([NBLi,Talpha,pbhalpha,radalpha])
-                                 ,method = 'BDF',rtol = rtol3,atol = atol3)               
+                                 ,method = 'BDF',rtol = rtol3,atol = atol3)   
 
-        Bint =  interp1d(Bsol.t,Bsol.y,fill_value = 'extrapolate')
-   
-        Tlist = np.linspace(150,120,1000)
-        alphalist = [alphaT(T) for T in Tlist]
-        YBL = [(Bint(a)) for a in alphalist]
-        YBL = [YBL[i][0] for i in range(0,np.size(alphalist))]
-        YBLi = interp1d(alphalist,YBL,fill_value = 'extrapolate')
     
-        Yinst = [np.abs(NBLi(a))* Chi(Talpha(a)) for a in alphalist]
         
-        return [YBLi,alphalist]
+        '''Add the solution up to T = 150GeV'''
+        alphalist1 = np.linspace(alphai,a150,1000)
+        for a in alphalist1:
+            Ytotal.append(YBLa(a))
+            alphatotal.append(a)
+        
+        '''Add the solution up to T = 120GeV'''
+        for i in range(0,np.size(Bsol.t)):
+            Ytotal.append(Bsol.y[0][i])
+            alphatotal.append(Bsol.t[i])
+        
+        '''Interpolate the full solution'''
+        YBLi = interp1d(alphatotal,Ytotal,fill_value = 'extrapolate')
+        
+        return (YBLi,alphaT(Tsphal))
                                   
 
 
@@ -1259,66 +1279,3 @@ def sigmaHt(s,YY,i,M,T,eps,y):
     term1 = tp -tm - (1-aH+ aL)*(aH-2*aQ)*(1/(aH-tp) - 1/(aH-tm)) - ( 1-2*aH + aL + 2*aQ)*log(np.abs((tp-aH)/(tm-aH)))
     sig = pref*term1
     return pref*term1
-
-
-
-'''Legacy functions'''
-
-
-def coupledLegacy(alpha,N,funs,M,Yf,Mvf,xf,yf,YY,P,ratio,scatter = [],negative=False):
-    kappa = 0.14
-    '''extract the cosmological variables, S,H,T,alpha'''
-    Malpha,radalpha,pbhalpha,Talpha,salpha,alphaT = funs[0],funs[1],funs[2],funs[3],funs[4],funs[5]
-    T,MBH = Talpha(alpha),Malpha(alpha)
-    dMf,z = M[1]-M[0],M[1]/T
-    s,H,a = salpha(alpha) * 10**(-3*alpha), Hf(alpha,pbhalpha,radalpha),10**alpha
-    if s == 0:
-        return [0,0,0,0,0]
-    S = salpha(alpha)
-    if pbhalpha(alpha) > radalpha(alpha)/1e30:
-        NPBH = pbhalpha(alpha)/MBH / S
-    else:
-        NPBH = 0
-    '''define the entropy normalised quantities Yl, Yleq'''
-    Mlep = [ me, mmuon, mtau]
-    Yleq = [ Neqrel(T,a,Mf = ml,physical = True)/s for ml in Mlep]
-    YN,YL = [N[0],N[1]],[N[2],N[3],N[4]]
-    total = 0
-    '''Calculate dTda'''
-    epSM,epRHN =  epN(MBH,Mvf,M), epN(MBH,Mvf,M,species = "RHN")
-    ep = epSM+epRHN
-    total,kappa = 0, 416.3/(30720*pi) *  Mpl**4
-    dTda = T*(1 - 0.25*epSM*10**alpha /(H*MBH**3)*pbhalpha(alpha)/radalpha(alpha))
-    rates = []
-    for k in (0,1,2):
-        '''summing over N = N1,N2'''
-        for i in (0,1):
-            '''scattering rates'''
-            gSt,gSs = scatter[i][0],scatter[i][1]
-            '''RHN number densities'''
-            Yeq = 3/8*z**2*kn(2,z) * ratio / S
-            '''calculate the rate'''
-            prefactor = log(10)*dTda/(T*H*s)
-            decay =  gammaD(YY,i,z,M[i])
-            gD = complex(decay[0]).real   #rate of production gammaD
-            '''CP asymmetry parameter'''
-            eps =  epsilon(dM=dMf,M2f=M[1],Y=Yf,i=i+1,l=k,z=z,Mv=Mvf,x=xf,y=yf)
-            if negative == True:
-                eps  =  eps*decay[1]
-            '''PBH production rate'''
-            GPBH =  Gammaf("RHN",MBH,M[i])
-            D = gD*((YN[i]/Yeq-1)*eps)
-            W = -P[i][k]*YL[k]/Yleq[k]*(gD/2)
-            if gD == 0:
-                W = -P[i][k]*YL[k]/Yleq[k]*( 2*gSt(T) + YN[i]/Yeq * gSs(T) )
-            dY = complex(prefactor*( D + W )).real
-            if k == 0:
-                DN = (1-YN[i]/Yeq)*(gD)
-                if gD == 0:
-                    dN =+ (1-YN[i]/Yeq)*(gSs(T)*2 + gSt(T)*4)
-                Nrate = prefactor * (DN + NPBH*GPBH)
-                rates.append(Nrate)
-            total += dY 
-        rates.append(total)
-    return rates
-
